@@ -1,0 +1,13 @@
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj.user
+
+# Big data files
+*.csv
+*.xlsx
+*.zip
+
+# Output files if too heavy
+*.png
+*.pdf
