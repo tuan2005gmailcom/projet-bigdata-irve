@@ -16,18 +16,10 @@ df <- read.csv("E:/ISEN 2025-2026/projet BigDAta_IA_Web/travail/IRVE.csv")
 # Certaines colonnes ne sont pas utiles pour notre analyse principale
 # ou contiennent trop de valeurs manquantes.
 # On les retire pour alléger le dataset et faciliter l’analyse.
-df_clean <- df %>%
-  select(
-    -observations,          # Colonne textuelle libre, très incomplète et difficile à exploiter
-    -num_pdl,               # Identifiant technique peu utile pour nos analyses
-    -raccordement,          # Colonne trop incomplète
-    -cable_t2_attache,      # Colonne trop incomplète
-    -contact_amenageur,     # Information de contact, non utile pour l’analyse statistique
-    -contact_operateur,     # Information de contact, non utile pour les graphiques/carte/prédiction
-    -telephone_operateur,   # Information de contact, beaucoup de valeurs manquantes
-    -id_station_local,      # Identifiant local, pas nécessaire car on a déjà d’autres identifiants
-    -id_pdc_local           # Identifiant local, pas nécessaire pour l’analyse
-  )
+df_clean$observations <- NULL
+df_clean$num_pdl <- NULL
+df_clean$raccordement <- NULL
+df_clean$cable_t2_attache <- NULL
 
 # ------------------------------------------------------------
 # 2. Traitement des valeurs manquantes dans les variables texte
@@ -153,3 +145,6 @@ df_tarif <- df_clean %>%
 # Elle permet de vérifier la qualité du dataset après nettoyage.
 colSums(is.na(df_clean) | sapply(df_clean, function(x) trimws(as.character(x)) == ""))
 
+dim(df_clean)
+dim(df_temporel)
+dim(df_tarif)
