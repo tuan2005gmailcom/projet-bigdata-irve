@@ -8,8 +8,7 @@ library(tidyr)
 
 # Importation du fichier CSV
 # stringsAsFactors = FALSE évite que les colonnes texte soient automatiquement transformées en facteurs
-df <- read.csv("E:/ISEN 2025-2026/projet BigDAta_IA_Web/travail/IRVE.csv",
-               stringsAsFactors = FALSE)
+df <- read.csv("E:/ISEN 2025-2026/projet BigDAta_IA_Web/travail/IRVE.csv")
 
 # ------------------------------------------------------------
 # 1. Suppression des colonnes inutiles ou trop incomplètes
