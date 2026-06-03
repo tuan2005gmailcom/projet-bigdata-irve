@@ -44,7 +44,7 @@ dim(df_puissance)
 summary(df_puissance$puissance_nominale)
 
 # 9. Histogramme simple de la puissance nominale
-hist(df_puissance$puissance_nominale,
+hist(df_pu$puissance_nominale,
      main = "Répartition de la puissance nominale",
      xlab = "Puissance nominale (kW)",
      ylab = "Nombre de points de charge",

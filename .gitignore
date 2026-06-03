@@ -11,3 +11,4 @@
 # Output files if too heavy
 *.png
 *.pdf
+.Rproj.user
