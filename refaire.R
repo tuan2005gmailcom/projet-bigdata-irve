@@ -4,7 +4,6 @@
 # visualisations, cartographie, corrélations et régressions
 # ==============================================================================
 
-
 # ==============================================================================
 # 0. PACKAGES
 # ==============================================================================
@@ -652,104 +651,8 @@ dev.off()
 
 kruskal.test(puissance_nominale ~ gratuit_clean, data = df_pu)
 
-
 # ==============================================================================
-# 16. RÉGRESSION LOGISTIQUE : PAYANT / GRATUIT SELON PUISSANCE
-# ==============================================================================
-
-table(df_logistique$tarif_binaire)
-round(prop.table(table(df_logistique$tarif_binaire)) * 100, 2)
-
-modele_logistique <- glm(
-  tarif_binaire ~ puissance_nominale,
-  data = df_logistique,
-  family = binomial
-)
-
-summary(modele_logistique)
-exp(coef(modele_logistique))
-
-sequence_puissance <- seq(
-  from = min(df_logistique$puissance_nominale, na.rm = TRUE),
-  to = max(df_logistique$puissance_nominale, na.rm = TRUE),
-  length.out = 300
-)
-
-predictions <- predict(
-  modele_logistique,
-  newdata = data.frame(puissance_nominale = sequence_puissance),
-  type = "response"
-)
-
-png("courbe_logistique_tarification_puissance.png", width = 900, height = 600)
-
-plot(
-  df_logistique$puissance_nominale,
-  jitter(df_logistique$tarif_binaire, amount = 0.03),
-  main = "Probabilité qu'une borne soit payante selon sa puissance",
-  xlab = "Puissance nominale (kW)",
-  ylab = "Statut / probabilité d'être payant",
-  pch = 16,
-  col = rgb(0, 0, 0, 0.15),
-  yaxt = "n"
-)
-
-axis(
-  2,
-  at = c(0, 0.25, 0.5, 0.75, 1),
-  labels = c("0 = Gratuit", "0.25", "0.50", "0.75", "1 = Payant")
-)
-
-lines(sequence_puissance, predictions, col = "red", lwd = 3)
-
-grid()
-
-legend(
-  "bottomright",
-  legend = c("Observations", "Probabilité prédite"),
-  col = c("black", "red"),
-  pch = c(16, NA),
-  lty = c(NA, 1),
-  lwd = c(NA, 3),
-  bty = "n"
-)
-
-dev.off()
-
-
-# ==============================================================================
-# 17. TAUX DE BORNES PAYANTES PAR CATÉGORIE DE PUISSANCE
-# ==============================================================================
-
-df_logistique$categorie_puissance <- cut(
-  df_logistique$puissance_nominale,
-  breaks = c(0, 22, 50, 150, 400),
-  labels = c("≤ 22 kW", "22-50 kW", "50-150 kW", "150-400 kW"),
-  include.lowest = TRUE
-)
-
-taux_payant <- aggregate(
-  tarif_binaire ~ categorie_puissance,
-  data = df_logistique,
-  FUN = mean
-)
-
-taux_payant
-
-png("taux_payant_par_categorie_puissance.png", width = 800, height = 600)
-
-barplot(taux_payant$tarif_binaire,
-        names.arg = taux_payant$categorie_puissance,
-        main = "Taux de bornes payantes selon la catégorie de puissance",
-        xlab = "Catégorie de puissance",
-        ylab = "Proportion de bornes payantes",
-        ylim = c(0, 1),
-        col = "lightblue")
-
-dev.off()
-
-# ==============================================================================
-# PARTS DE MARCHÉ DES OPÉRATEURS - VERSION HORIZONTALE
+# 16. PARTS DE MARCHÉ DES OPÉRATEURS - VERSION HORIZONTALE
 # ==============================================================================
 
 # 1. Compter le nombre de points de charge par opérateur
@@ -798,6 +701,290 @@ text(
   labels = paste0(rev(parts_operateurs_pct), "%"),
   cex = 0.9,
   adj = 0
+)
+
+dev.off()
+
+# ==============================================================================
+# 17. PRÉDICTION DE LA PUISSANCE NOMINALE D'UNE STATION
+# Régression linéaire multiple au niveau station
+# ==============================================================================
+
+library(dplyr)
+
+# ------------------------------------------------------------------------------
+# 1. Fonction pour prendre la modalité la plus fréquente
+# ------------------------------------------------------------------------------
+
+mode_stat <- function(x) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0) return(NA)
+  names(sort(table(x), decreasing = TRUE))[1]
+}
+
+# ------------------------------------------------------------------------------
+# 2. Préparation des variables de prises
+# ------------------------------------------------------------------------------
+
+df_clean$prise_type_2_clean <- ifelse(
+  tolower(as.character(df_clean$prise_type_2)) %in% c("true", "1", "oui"),
+  "Oui",
+  "Non"
+)
+
+df_clean$combo_ccs_clean <- ifelse(
+  tolower(as.character(df_clean$prise_type_combo_ccs)) %in% c("true", "1", "oui"),
+  "Oui",
+  "Non"
+)
+
+df_clean$chademo_clean <- ifelse(
+  tolower(as.character(df_clean$prise_type_chademo)) %in% c("true", "1", "oui"),
+  "Oui",
+  "Non"
+)
+
+df_clean$prise_ef_clean <- ifelse(
+  tolower(as.character(df_clean$prise_type_ef)) %in% c("true", "1", "oui"),
+  "Oui",
+  "Non"
+)
+
+# ------------------------------------------------------------------------------
+# 3. Filtrer les données exploitables
+# ------------------------------------------------------------------------------
+
+df_puissance_base <- df_clean %>%
+  filter(
+    !is.na(id_station_itinerance),
+    !is.na(puissance_nominale),
+    puissance_nominale > 0,
+    puissance_nominale <= 400,
+    !is.na(nbre_pdc),
+    nbre_pdc > 0,
+    nbre_pdc <= 50
+  )
+
+# ------------------------------------------------------------------------------
+# 4. Agréger au niveau station
+# ------------------------------------------------------------------------------
+
+df_station <- df_puissance_base %>%
+  group_by(id_station_itinerance) %>%
+  summarise(
+    # Variable cible : puissance maximale disponible dans la station
+    puissance_station = max(puissance_nominale, na.rm = TRUE),
+    
+    # Variables explicatives
+    nbre_pdc_station = max(nbre_pdc, na.rm = TRUE),
+    
+    has_type2 = ifelse(any(prise_type_2_clean == "Oui"), "Oui", "Non"),
+    has_combo_ccs = ifelse(any(combo_ccs_clean == "Oui"), "Oui", "Non"),
+    has_chademo = ifelse(any(chademo_clean == "Oui"), "Oui", "Non"),
+    has_ef = ifelse(any(prise_ef_clean == "Oui"), "Oui", "Non"),
+    
+    implantation_station = mode_stat(implantation_station),
+    paiement_cb_clean = mode_stat(paiement_cb_clean),
+    gratuit_clean = mode_stat(gratuit_clean),
+    tarif_classe = mode_stat(tarif_classe),
+    
+    .groups = "drop"
+  )
+
+# Supprimer les lignes incomplètes
+df_station <- na.omit(df_station)
+
+# Conversion en facteurs
+df_station$has_type2 <- as.factor(df_station$has_type2)
+df_station$has_combo_ccs <- as.factor(df_station$has_combo_ccs)
+df_station$has_chademo <- as.factor(df_station$has_chademo)
+df_station$has_ef <- as.factor(df_station$has_ef)
+df_station$implantation_station <- as.factor(df_station$implantation_station)
+df_station$paiement_cb_clean <- as.factor(df_station$paiement_cb_clean)
+df_station$gratuit_clean <- as.factor(df_station$gratuit_clean)
+df_station$tarif_classe <- as.factor(df_station$tarif_classe)
+
+# Vérification
+dim(df_station)
+summary(df_station$puissance_station)
+
+# ==============================================================================
+# MODÈLE DE RÉGRESSION LINÉAIRE MULTIPLE
+# ==============================================================================
+
+set.seed(123)
+
+index_train_station <- sample(
+  1:nrow(df_station),
+  size = 0.8 * nrow(df_station)
+)
+
+train_station <- df_station[index_train_station, ]
+test_station <- df_station[-index_train_station, ]
+
+# Modèle avec transformation log pour réduire l'effet des grandes puissances
+modele_puissance_station <- lm(
+  log1p(puissance_station) ~ log1p(nbre_pdc_station) +
+    has_type2 +
+    has_combo_ccs +
+    has_chademo +
+    has_ef +
+    implantation_station +
+    paiement_cb_clean +
+    gratuit_clean +
+    tarif_classe,
+  data = train_station
+)
+
+summary(modele_puissance_station)
+
+# ==============================================================================
+# 18. ÉVALUATION DU MODÈLE
+# ==============================================================================
+
+# Prédiction sur le test set
+pred_log <- predict(
+  modele_puissance_station,
+  newdata = test_station
+)
+
+# Retour à l'échelle normale
+pred_puissance_station <- expm1(pred_log)
+
+# Empêcher les prédictions négatives
+pred_puissance_station[pred_puissance_station < 0] <- 0
+
+# Erreurs
+erreurs <- test_station$puissance_station - pred_puissance_station
+
+MAE <- mean(abs(erreurs), na.rm = TRUE)
+RMSE <- sqrt(mean(erreurs^2, na.rm = TRUE))
+
+SSE <- sum(erreurs^2, na.rm = TRUE)
+SST <- sum(
+  (test_station$puissance_station - mean(test_station$puissance_station, na.rm = TRUE))^2,
+  na.rm = TRUE
+)
+
+R2_test <- 1 - SSE / SST
+
+cat("MAE :", round(MAE, 2), "kW\n")
+cat("RMSE :", round(RMSE, 2), "kW\n")
+cat("R² test :", round(R2_test, 4), "\n")
+
+# ==============================================================================
+# GRAPHIQUE : PUISSANCE RÉELLE VS PUISSANCE PRÉDITE
+# ==============================================================================
+
+png("prediction_puissance_station_reelle_vs_predite.png", width = 800, height = 600)
+
+plot(
+  test_station$puissance_station,
+  pred_puissance_station,
+  main = "Prédiction de la puissance nominale d'une station",
+  xlab = "Puissance réelle (kW)",
+  ylab = "Puissance prédite (kW)",
+  pch = 16,
+  col = rgb(0, 0, 0, 0.25)
+)
+
+abline(0, 1, col = "red", lwd = 3)
+
+grid()
+
+dev.off()
+
+# ==============================================================================
+# MOSAICPLOT PROPRE : CATÉGORIE DE PUISSANCE × PAIEMENT CB
+# ==============================================================================
+
+# install.packages("vcd") # à faire une seule fois si besoin
+library(vcd)
+library(grid)
+
+# ------------------------------------------------------------------------------
+# 1. Préparer les données
+# ------------------------------------------------------------------------------
+
+df_mosaic_puissance <- df_clean[
+  !is.na(df_clean$puissance_nominale) &
+    df_clean$puissance_nominale > 0 &
+    df_clean$puissance_nominale <= 400 &
+    df_clean$paiement_cb_clean %in% c("Oui", "Non"),
+]
+
+# ------------------------------------------------------------------------------
+# 2. Créer une catégorie de puissance simple
+# ------------------------------------------------------------------------------
+
+df_mosaic_puissance$categorie_puissance_simple <- cut(
+  df_mosaic_puissance$puissance_nominale,
+  breaks = c(0, 22, 150, 400),
+  labels = c(
+    "Faible / normale\n≤ 22 kW",
+    "Rapide\n22-150 kW",
+    "Très rapide\n150-400 kW"
+  ),
+  include.lowest = TRUE
+)
+
+# ------------------------------------------------------------------------------
+# 3. Tableau croisé
+# ------------------------------------------------------------------------------
+
+tab_puissance_cb <- table(
+  "Catégorie de puissance" = df_mosaic_puissance$categorie_puissance_simple,
+  "Paiement CB" = df_mosaic_puissance$paiement_cb_clean
+)
+
+tab_puissance_cb
+
+# ------------------------------------------------------------------------------
+# 4. Test du Khi-deux + Cramer's V
+# ------------------------------------------------------------------------------
+
+test_chi2 <- chisq.test(tab_puissance_cb)
+
+cramer_v <- sqrt(
+  as.numeric(test_chi2$statistic) /
+    (sum(tab_puissance_cb) * (min(dim(tab_puissance_cb)) - 1))
+)
+
+p_value_txt <- ifelse(
+  test_chi2$p.value < 0.001,
+  "p-value < 0.001",
+  paste0("p-value = ", round(test_chi2$p.value, 4))
+)
+
+cramer_txt <- paste0("Cramer's V = ", round(cramer_v, 3))
+
+# ------------------------------------------------------------------------------
+# 5. Mosaicplot propre
+# ------------------------------------------------------------------------------
+
+png(
+  "mosaicplot_puissance_paiement_cb.png",
+  width = 1100,
+  height = 750,
+  res = 120
+)
+
+mosaic(
+  tab_puissance_cb,
+  shade = TRUE,
+  legend = TRUE,
+  main = "Association entre puissance nominale et paiement par carte bancaire",
+  labeling_args = list(
+    gp_labels = gpar(fontsize = 10),
+    gp_varnames = gpar(fontsize = 12, fontface = "bold")
+  )
+)
+
+grid.text(
+  paste(p_value_txt, "|", cramer_txt),
+  x = 0.68,
+  y = 0.07,
+  gp = gpar(fontsize = 11, fontface = "bold")
 )
 
 dev.off()
@@ -1010,22 +1197,6 @@ accuracy_tarif <- sum(diag(matrice_confusion_tarif)) / sum(matrice_confusion_tar
 
 cat("Accuracy du modèle :", round(accuracy_tarif * 100, 2), "%\n")
 
-# ------------------------------------------------------------------------------
-# 11. Graphique : répartition des groupes de tarification
-# ------------------------------------------------------------------------------
-
-png("repartition_tarification_3_groupes.png", width = 800, height = 600)
-
-barplot(
-  table(df_tarif_3$tarif_groupe),
-  main = "Répartition de la tarification en trois groupes",
-  xlab = "Groupe de tarification",
-  ylab = "Nombre de points de charge",
-  col = c("lightgreen", "orange", "tomato")
-)
-
-dev.off()
-
 # ==============================================================================
 # COURBES DE PROBABILITÉ POUR LA RÉGRESSION MULTINOMIALE
 # Tarif Bas / Modéré / Élevé selon la puissance nominale
@@ -1123,4 +1294,22 @@ legend(
 )
 
 dev.off()
+
+# ==============================================================================
+# EXPORT DU FICHIER NETTOYÉ POUR LA PARTIE IA
+# ==============================================================================
+
+df_export <- df_clean
+
+# Colonne technique utilisée seulement pour vérifier les doublons
+df_export$id_pdc_itinerance_clean <- NULL
+
+write.csv(
+  df_export,
+  "export_IA.csv",
+  row.names = FALSE
+)
+
+file.exists("export_IA.csv")
+dim(df_export)
 
